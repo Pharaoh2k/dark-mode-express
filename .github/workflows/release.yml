@@ -1,0 +1,95 @@
+name: Release
+
+# Push a tag like v4.9.135.1 (matching src/manifest.json) to build, sign and publish a release.
+# Needs the repository secrets AMO_JWT_ISSUER and AMO_JWT_SECRET (AMO API keys).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Check that the tag matches the manifest version
+        id: version
+        run: |
+          VERSION="$(node -p "require('./src/manifest.json').version")"
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match the manifest version $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build for Firefox
+        run: npm run build:firefox
+
+      - name: Sign with Mozilla as an unlisted add-on
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo "The AMO_JWT_ISSUER and AMO_JWT_SECRET secrets are not set" >&2
+            exit 1
+          fi
+          # Mozilla may ask for the source of bundled code, so it is uploaded with each version
+          git archive --format=zip -o source.zip HEAD
+          npx --yes web-ext@8.3.0 sign \
+            --channel unlisted \
+            --source-dir build/release/firefox \
+            --artifacts-dir dist \
+            --upload-source-code source.zip \
+            --approval-timeout 1800000 \
+            --api-key "$AMO_JWT_ISSUER" \
+            --api-secret "$AMO_JWT_SECRET"
+          mv dist/*.xpi "dist/dark-mode-express-$VERSION.xpi"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "dist/dark-mode-express-$VERSION.xpi" \
+            --title "Dark Mode Express $VERSION" \
+            --notes "Signed by Mozilla for self-distribution. Open the .xpi file in Firefox to install it. Installed copies update automatically."
+
+      - name: Add the version to updates.json
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          XPI="dist/dark-mode-express-$VERSION.xpi"
+          HASH="sha256:$(sha256sum "$XPI" | cut -d' ' -f1)"
+          LINK="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/dark-mode-express-$VERSION.xpi"
+          git fetch origin main
+          git checkout -B main origin/main
+          jq --arg v "$VERSION" --arg l "$LINK" --arg h "$HASH" \
+            '.addons["dark-mode-express@pharaoh2k"].updates += [{version: $v, update_link: $l, update_hash: $h}]' \
+            updates.json > updates.tmp
+          mv updates.tmp updates.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Add $VERSION to updates.json [skip ci]"
+          git push origin main
