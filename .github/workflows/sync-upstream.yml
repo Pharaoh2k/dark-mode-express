@@ -1,0 +1,121 @@
+name: Sync fork from upstream (merge, keep my files)
+
+# Daily: merge darkreader/darkreader main into main, keeping this fork's side on conflicts.
+# When upstream's version changes, the version becomes <upstream version>.1 and a release tag is
+# pushed, which starts the release workflow (signing and publishing). Nothing is pushed unless the
+# merged code typechecks, passes the unit tests and builds for Firefox.
+# Needs the repository secret UPSTREAM_SYNC_PAT (a token that can push code and workflow files).
+
+on:
+  schedule:
+    - cron: "20 0 * * *" # daily at 00:20 UTC
+  workflow_dispatch:
+
+# Pushes use the PAT, so the default GITHUB_TOKEN can stay read-only.
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false # don't use GITHUB_TOKEN for pushes
+
+      - name: Configure Git author
+        run: |
+          git config user.name  "upstream-sync-bot"
+          git config user.email "upstream-sync-bot@users.noreply.github.com"
+
+      - name: Add & fetch upstream
+        run: |
+          git remote add upstream https://github.com/darkreader/darkreader.git || true
+          git fetch upstream main --prune
+
+      - name: Merge upstream/main into my main (like the UI "Sync fork" button)
+        run: |
+          git checkout main
+          # Try fast-forward; if not, create a merge commit.
+          # Use -X ours strategy to keep our changes on conflicts
+          if ! git merge --ff-only upstream/main; then
+            if ! git merge --no-edit -X ours upstream/main; then
+              # Deleted by us, modified by them: keep it deleted
+              # (|| true: grep finding nothing must not fail the step under pipefail)
+              { git status --porcelain | grep '^DU' || true; } | awk '{print $2}' | xargs -r git rm
+              # Modified by us, deleted by them: keep ours
+              { git status --porcelain | grep '^UD' || true; } | awk '{print $2}' | xargs -r git add
+              if git diff --name-only --diff-filter=U | grep -q .; then
+                echo "Unresolved conflicts:" >&2
+                git diff --name-only --diff-filter=U >&2
+                exit 1
+              fi
+              git commit --no-edit
+            fi
+          fi
+
+      - name: Follow upstream's version
+        id: version
+        run: |
+          UPSTREAM="$(git show upstream/main:src/manifest.json | jq -r .version)"
+          OURS="$(jq -r .version src/manifest.json)"
+          echo "Upstream $UPSTREAM, Dark Mode Express $OURS"
+          if [[ "$OURS" != "$UPSTREAM".* ]]; then
+            NEW="$UPSTREAM.1"
+            sed -i -E "0,/\"version\": \"[^\"]+\"/s//\"version\": \"$NEW\"/" src/manifest.json
+            [ "$(jq -r .version src/manifest.json)" = "$NEW" ]
+            git commit -am "Dark Mode Express $NEW, based on Dark Reader $UPSTREAM"
+            echo "tag=v$NEW" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
+            echo "Already up to date with upstream"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git log --oneline origin/main..HEAD | head -20
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Check the merged code (types, unit tests, Firefox build)
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          npm ci
+          npx tsc --noEmit -p src/tsconfig.json
+          npm test
+          npm run build:firefox
+
+      - name: Push back to my fork using the PAT
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          PAT: ${{ secrets.UPSTREAM_SYNC_PAT }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "The UPSTREAM_SYNC_PAT secret is not set" >&2
+            exit 1
+          fi
+          # Use USERNAME:PAT@... for HTTPS pushes (PAT acts as the password)
+          git remote set-url origin "https://${{ github.actor }}:${PAT}@github.com/${{ github.repository }}.git"
+          git push origin main
+          if [ -n "$TAG" ]; then
+            # A tag pushed with the PAT (not GITHUB_TOKEN) starts the release workflow
+            git tag -a "$TAG" -m "Dark Mode Express ${TAG#v}"
+            git push origin "$TAG"
+          fi
