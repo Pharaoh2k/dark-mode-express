@@ -1,4 +1,4 @@
-import {HOMEPAGE_URL, BLOG_URL, DEVTOOLS_DOCS_URL, GITHUB_URL, PRIVACY_URL, TWITTER_URL, UNINSTALL_URL, HELP_URL} from './links';
+import {HOMEPAGE_URL, DEVTOOLS_DOCS_URL, GITHUB_URL, PRIVACY_URL, TWITTER_URL} from './links';
 
 enum CSP {
     NONE = "'none'",
@@ -6,7 +6,8 @@ enum CSP {
 }
 
 function check() {
-    const prefixed = [BLOG_URL, PRIVACY_URL, UNINSTALL_URL, HELP_URL];
+    // Dark Mode Express keeps linking to Dark Reader's blog and help pages, only its own pages are checked
+    const prefixed = [PRIVACY_URL];
     if (prefixed.some((url) => !url.startsWith(HOMEPAGE_URL))) {
         throw new Error('Some navigation URL is not within main site!');
     }

@@ -22,7 +22,7 @@ function Logo() {
             target="_blank"
             rel="noopener noreferrer"
         >
-            Dark Reader
+            Dark Mode Express
         </a>
     );
 }
@@ -103,11 +103,11 @@ function DonateGroup() {
             <a class="m-donate-button" href={DONATE_URL} target="_blank" rel="noopener noreferrer">
                 <span class="m-donate-button__icon"></span>
                 <span class="m-donate-button__text">
-                    Pay for using <strong class="m-donate-button__darkreader">Dark Reader</strong>
+                    Support the original <strong class="m-donate-button__darkreader">Dark Reader</strong>
                 </span>
             </a>
             <label class="m-donate-description">
-                Please support our work
+                Dark Mode Express is based on it
             </label>
         </div>
     );

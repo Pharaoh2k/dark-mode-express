@@ -1,14 +1,14 @@
 import {getUILanguage} from './locales';
 import {isEdge, isMobile} from './platform';
 
-export const HOMEPAGE_URL = 'https://darkreader.org';
+export const HOMEPAGE_URL = 'https://github.com/Pharaoh2k/dark-mode-express';
 export const BLOG_URL = 'https://darkreader.org/blog/';
 export const NEWS_URL = 'https://darkreader.org/blog/posts.json';
 export const DEVTOOLS_DOCS_URL = 'https://github.com/darkreader/darkreader/blob/main/CONTRIBUTING.md';
 export const DONATE_URL = 'https://darkreader.org/support-us/';
-export const GITHUB_URL = 'https://github.com/darkreader/darkreader';
+export const GITHUB_URL = 'https://github.com/Pharaoh2k/dark-mode-express';
 export const MOBILE_URL = 'https://darkreader.org/tips/mobile/';
-export const PRIVACY_URL = 'https://darkreader.org/privacy/';
+export const PRIVACY_URL = 'https://github.com/Pharaoh2k/dark-mode-express#privacy';
 export const TWITTER_URL = 'https://twitter.com/darkreaderapp';
 export const UNINSTALL_URL = 'https://darkreader.org/goodluck/';
 export const HELP_URL = 'https://darkreader.org/help';
