@@ -111,6 +111,130 @@ export function isURLMatched(url: string, urlTemplate: string): boolean {
     return matchURLPattern(url, urlTemplate);
 }
 
+// Site list entries can be turned into match patterns for registering content scripts.
+// Match patterns can't express everything an entry can (regular expressions,
+// wildcards inside a host, path segments, "www." being optional), so there is a
+// conversion that covers exactly the URLs an entry matches, when one exists,
+// and a conversion that covers at least those URLs.
+
+const MATCH_PATTERN_HOST_REGEX = /^[a-z0-9-]+(\.[a-z0-9-]+)*$/;
+
+interface SiteListEntryParts {
+    scheme: string;
+    host: string;
+    path: string;
+    hasPort: boolean;
+    exactStart: boolean;
+    exactEnd: boolean;
+}
+
+function parseSiteListEntry(entry: string): SiteListEntryParts | null {
+    if (isRegExp(entry)) {
+        return null;
+    }
+    let rest = entry;
+    const exactStart = rest.startsWith('^');
+    if (exactStart) {
+        rest = rest.substring(1);
+    }
+    const exactEnd = rest.endsWith('$');
+    if (exactEnd) {
+        rest = rest.substring(0, rest.length - 1);
+    }
+    let scheme = '*';
+    const protocolIndex = rest.indexOf('://');
+    if (protocolIndex > 0) {
+        scheme = rest.substring(0, protocolIndex);
+        rest = rest.substring(protocolIndex + 3);
+        if (scheme !== 'http' && scheme !== 'https') {
+            return null;
+        }
+    }
+    const slashIndex = rest.indexOf('/');
+    const path = slashIndex < 0 ? '' : rest.substring(slashIndex + 1);
+    let host = slashIndex < 0 ? rest : rest.substring(0, slashIndex);
+    const portIndex = host.lastIndexOf(':');
+    const hasPort = portIndex >= 0;
+    if (hasPort) {
+        host = host.substring(0, portIndex);
+    }
+    return {scheme, host, path, hasPort, exactStart, exactEnd};
+}
+
+/**
+ * Returns match patterns that match exactly the URLs the site list entry matches,
+ * or null when no such patterns exist.
+ * @param entry Site list entry ("example.com", "https://example.com" etc).
+ */
+export function getExactMatchPatterns(entry: string): string[] | null {
+    const parts = parseSiteListEntry(entry);
+    if (
+        !parts ||
+        parts.path ||
+        parts.hasPort ||
+        parts.exactEnd ||
+        !parts.host.includes('.') ||
+        !MATCH_PATTERN_HOST_REGEX.test(parts.host)
+    ) {
+        return null;
+    }
+    const {scheme, host, exactStart} = parts;
+    const patterns = [`${scheme}://${host}/*`];
+    if (!exactStart) {
+        patterns.push(`${scheme}://www.${host}/*`);
+    }
+    return patterns;
+}
+
+/**
+ * Returns match patterns that match at least the URLs the site list entry matches,
+ * or null when no such patterns exist.
+ * @param entry Site list entry ("example.com", "*.example.com" etc).
+ */
+export function getBroadMatchPatterns(entry: string): string[] | null {
+    const parts = parseSiteListEntry(entry);
+    if (!parts) {
+        return null;
+    }
+    const {scheme, exactStart} = parts;
+    let host = parts.host.toLowerCase();
+    const isAnySubdomain = host.startsWith('*.');
+    if (isAnySubdomain) {
+        host = host.substring(2);
+    }
+    if (!MATCH_PATTERN_HOST_REGEX.test(host)) {
+        return null;
+    }
+    // A template with a single host part like "localhost" matches its subdomains too
+    if (isAnySubdomain || !host.includes('.')) {
+        return [`${scheme}://*.${host}/*`];
+    }
+    const patterns = [`${scheme}://${host}/*`];
+    if (!exactStart) {
+        patterns.push(`${scheme}://www.${host}/*`);
+    }
+    return patterns;
+}
+
+/**
+ * Determines whether the site list entry may match some URL on the host,
+ * with any protocol, port or path.
+ * @param entry Site list entry.
+ * @param host Host name.
+ */
+export function mayMatchHost(entry: string, host: string): boolean {
+    if (isRegExp(entry)) {
+        // Can't tell which URLs a regular expression matches
+        return true;
+    }
+    const parts = parseSiteListEntry(entry);
+    if (!parts) {
+        // Protocols other than HTTP and HTTPS
+        return false;
+    }
+    return isURLMatched(`https://${host}/`, `${parts.exactStart ? '^' : ''}${parts.host}`);
+}
+
 interface PreparedURL {
     hostParts: string[];
     pathParts: string[];

@@ -18,6 +18,7 @@ import {isURLInList, getURLHostOrProtocol, isURLEnabled, isPDF} from '../utils/u
 
 import ConfigManager from './config-manager';
 import DevTools from './devtools';
+import FallbackScriptManager, {getFallbackScriptTargets} from './fallback-script-manager';
 import IconManager from './icon-manager';
 import type {ExtensionAdapter} from './messenger';
 import Messenger from './messenger';
@@ -44,6 +45,7 @@ interface SystemColorState extends Record<string, unknown> {
 
 declare const __CHROMIUM_MV2__: boolean;
 declare const __CHROMIUM_MV3__: boolean;
+declare const __FIREFOX_MV2__: boolean;
 declare const __PLUS__: boolean;
 declare const __THUNDERBIRD__: boolean;
 
@@ -652,11 +654,20 @@ export class Extension {
                 resetWindowTheme();
             }
         }
+
+        Extension.updateFallbackScript();
+    }
+
+    private static updateFallbackScript() {
+        if (__FIREFOX_MV2__) {
+            FallbackScriptManager.update(getFallbackScriptTargets(Extension.isExtensionSwitchedOn(), UserStorage.settings));
+        }
     }
 
     private static async onSettingsChanged(onlyUpdateActiveTab = false) {
         await Extension.loadData();
         Extension.wasEnabledOnLastCheck = Extension.isExtensionSwitchedOn();
+        Extension.updateFallbackScript();
         TabManager.sendMessage(onlyUpdateActiveTab);
         Extension.saveUserSettings();
         Extension.reportChanges();

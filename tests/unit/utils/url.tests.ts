@@ -1,4 +1,4 @@
-import {indexURLTemplateList, isPDF, isURLInIndexedList, isURLMatched} from '../../../src/utils/url';
+import {getBroadMatchPatterns, getExactMatchPatterns, indexURLTemplateList, isPDF, isURLInIndexedList, isURLMatched, mayMatchHost} from '../../../src/utils/url';
 
 describe('Domain utilities', () => {
     test('URL match', () => {
@@ -142,5 +142,75 @@ describe('Domain utilities', () => {
         expect(isURLInIndexedList('https://www.office.com/excel/', indexed)).toEqual(false);
         expect(isURLInIndexedList('https://www.office.com/excel/edit', indexed)).toEqual(true);
         expect(isURLInIndexedList('https://www.office.com/excel/edit/2000', indexed)).toEqual(true);
+    });
+});
+
+describe('Site list entries as match patterns', () => {
+    test('Exact match patterns', () => {
+        expect(getExactMatchPatterns('github.com')).toEqual(['*://github.com/*', '*://www.github.com/*']);
+        expect(getExactMatchPatterns('github.com/')).toEqual(['*://github.com/*', '*://www.github.com/*']);
+        expect(getExactMatchPatterns('mail.google.com')).toEqual(['*://mail.google.com/*', '*://www.mail.google.com/*']);
+        expect(getExactMatchPatterns('https://github.com')).toEqual(['https://github.com/*', 'https://www.github.com/*']);
+        expect(getExactMatchPatterns('^github.com')).toEqual(['*://github.com/*']);
+        expect(getExactMatchPatterns('192.168.0.1')).toEqual(['*://192.168.0.1/*', '*://www.192.168.0.1/*']);
+
+        // Can't be expressed exactly
+        expect(getExactMatchPatterns('/github\\.com/')).toEqual(null);
+        expect(getExactMatchPatterns('*.github.com')).toEqual(null);
+        expect(getExactMatchPatterns('google.*')).toEqual(null);
+        expect(getExactMatchPatterns('github.com/settings')).toEqual(null);
+        expect(getExactMatchPatterns('github.com$')).toEqual(null);
+        expect(getExactMatchPatterns('localhost:8080')).toEqual(null);
+        expect(getExactMatchPatterns('localhost')).toEqual(null);
+        expect(getExactMatchPatterns('GitHub.com')).toEqual(null);
+        expect(getExactMatchPatterns('file:///home/')).toEqual(null);
+        expect(getExactMatchPatterns('[::1]')).toEqual(null);
+        expect(getExactMatchPatterns('')).toEqual(null);
+    });
+
+    test('Entries that convert exactly match the same URLs as their patterns', () => {
+        const urls = [
+            'https://github.com/',
+            'http://github.com/darkreader/darkreader',
+            'https://www.github.com/',
+            'https://gist.github.com/',
+            'https://www.www.github.com/',
+            'https://github.com:8443/',
+            'https://notgithub.com/',
+        ];
+        // *://github.com/* and *://www.github.com/* match the 1st, 2nd, 3rd and 6th
+        expect(urls.map((url) => isURLMatched(url, 'github.com'))).toEqual([true, true, true, false, false, true, false]);
+        // *://github.com/* matches the 1st, 2nd and 6th
+        expect(urls.map((url) => isURLMatched(url, '^github.com'))).toEqual([true, true, false, false, false, true, false]);
+    });
+
+    test('Broad match patterns', () => {
+        expect(getBroadMatchPatterns('github.com')).toEqual(['*://github.com/*', '*://www.github.com/*']);
+        expect(getBroadMatchPatterns('github.com/settings')).toEqual(['*://github.com/*', '*://www.github.com/*']);
+        expect(getBroadMatchPatterns('github.com:8080$')).toEqual(['*://github.com/*', '*://www.github.com/*']);
+        expect(getBroadMatchPatterns('*.github.com')).toEqual(['*://*.github.com/*']);
+        expect(getBroadMatchPatterns('localhost')).toEqual(['*://*.localhost/*']);
+        expect(getBroadMatchPatterns('GitHub.com')).toEqual(['*://github.com/*', '*://www.github.com/*']);
+        expect(getBroadMatchPatterns('https://github.com')).toEqual(['https://github.com/*', 'https://www.github.com/*']);
+
+        // Can't be covered
+        expect(getBroadMatchPatterns('/github\\.com/')).toEqual(null);
+        expect(getBroadMatchPatterns('google.*')).toEqual(null);
+        expect(getBroadMatchPatterns('*')).toEqual(null);
+        expect(getBroadMatchPatterns('file:///home/')).toEqual(null);
+    });
+
+    test('Entry may match host', () => {
+        expect(mayMatchHost('github.com', 'github.com')).toEqual(true);
+        expect(mayMatchHost('github.com', 'www.github.com')).toEqual(true);
+        expect(mayMatchHost('github.com/settings', 'github.com')).toEqual(true);
+        expect(mayMatchHost('https://github.com:8443', 'github.com')).toEqual(true);
+        expect(mayMatchHost('*.com', 'github.com')).toEqual(true);
+        expect(mayMatchHost('*', 'github.com')).toEqual(true);
+        expect(mayMatchHost('/anything/', 'github.com')).toEqual(true);
+        expect(mayMatchHost('^github.com', 'www.github.com')).toEqual(false);
+        expect(mayMatchHost('gist.github.com', 'github.com')).toEqual(false);
+        expect(mayMatchHost('gitlab.com', 'github.com')).toEqual(false);
+        expect(mayMatchHost('file:///home/', 'github.com')).toEqual(false);
     });
 });
