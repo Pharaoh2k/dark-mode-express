@@ -97,17 +97,8 @@ jobs:
       - name: Run injection tests
         run: npm run test:inject -- --ci --json --outputFile=test-results-inject.json
 
-      - name: Run browser tests on Chromium MV2 build
-        if: ${{ matrix.chrome }}
-        uses: coactions/setup-xvfb@v1
-        with:
-          run: npm run test:chrome -- --json --outputFile=test-results-chrome.json
-
-      - name: Run browser tests on Chromium MV3 build
-        if: ${{ matrix.chrome }}
-        uses: coactions/setup-xvfb@v1
-        with:
-          run: npm run test:chrome-mv3 -- --json --outputFile=test-results-chrome-mv3.json
+      # Dark Mode Express ships for Firefox only, so the Chromium extension builds are not tested.
+      # (Chrome no longer starts Manifest V2 extensions, which made the Chromium MV2 step fail before any test ran.)
 
       - name: Run browser tests on Firefox MV2 build
         if: ${{ matrix.firefox }}
