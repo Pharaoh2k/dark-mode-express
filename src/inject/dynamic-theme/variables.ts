@@ -41,6 +41,7 @@ export class VariablesStore {
     private initialVarTypes = new Map<string, number>();
     private changedTypeVars = new Set<string>();
     private typeChangeSubscriptions = new Map<string, Set<() => void>>();
+    private typeChangeFlushListeners = new Set<() => void>();
     private unstableVarValues = new Map<string, string>();
     private varFilterTypes = new Map<string, FilterType>();
     private notifyingVarFilterTypes = new Set<string>();
@@ -60,6 +61,7 @@ export class VariablesStore {
         this.initialVarTypes.clear();
         this.changedTypeVars.clear();
         this.typeChangeSubscriptions.clear();
+        this.typeChangeFlushListeners.clear();
         this.unstableVarValues.clear();
         this.varFilterTypes.clear();
         this.notifyingVarFilterTypes.clear();
@@ -150,6 +152,21 @@ export class VariablesStore {
             }
         });
         this.changedTypeVars.clear();
+        this.notifyTypeChangeFlush();
+    }
+
+    // Lets type change subscribers batch expensive work (like rebuilding a rule)
+    // until all type changes of the current pass have been delivered
+    addTypeChangeFlushListener(listener: () => void): void {
+        this.typeChangeFlushListeners.add(listener);
+    }
+
+    removeTypeChangeFlushListener(listener: () => void): void {
+        this.typeChangeFlushListeners.delete(listener);
+    }
+
+    private notifyTypeChangeFlush() {
+        this.typeChangeFlushListeners.forEach((listener) => listener());
     }
 
     getModifierForVariable(options: {
@@ -392,6 +409,7 @@ export class VariablesStore {
             this.notifyingVarFilterTypes.add(varName);
             subs.forEach((callback) => callback());
             this.notifyingVarFilterTypes.delete(varName);
+            this.notifyTypeChangeFlush();
         }
     }
 

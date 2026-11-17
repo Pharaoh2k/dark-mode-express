@@ -393,10 +393,42 @@ export function createStyleSheetModifier(): StyleSheetModifier {
             asyncDeclarations.delete(key);
         }
 
+        // Variable types are resolved one variable at a time, so a rule that declares
+        // many variables (like a theme's `:root` rule with hundreds of them) used to be
+        // rebuilt and re-parsed once per variable. Collect the rules and rebuild each
+        // one once, when the variables store has delivered all type changes.
+        const varRulesToRebuild = new Map<ReadyStyleRule, RuleInfo>();
+        const varRebuildRenderId = renderId;
+        let isListeningForVarFlush = false;
+
+        function flushVarRuleRebuilds() {
+            if (varRulesToRebuild.size === 0) {
+                return;
+            }
+            const infos = Array.from(varRulesToRebuild.values());
+            varRulesToRebuild.clear();
+            if (isAsyncCancelled() || varRebuildRenderId !== renderId) {
+                return;
+            }
+            infos.forEach(({rule, target, index}) => {
+                target.deleteRule(index);
+                setRule(target, index, rule);
+            });
+        }
+
         function rebuildVarRule(key: number) {
-            const {rule, target, index} = varDeclarations.get(key)!;
-            target.deleteRule(index);
-            setRule(target, index, rule);
+            const info = varDeclarations.get(key)!;
+            const isFirstPending = varRulesToRebuild.size === 0;
+            varRulesToRebuild.set(info.rule, info);
+            if (!isListeningForVarFlush) {
+                isListeningForVarFlush = true;
+                variablesStore.addTypeChangeFlushListener(flushVarRuleRebuilds);
+                varTypeChangeCleaners.add(() => variablesStore.removeTypeChangeFlushListener(flushVarRuleRebuilds));
+            }
+            if (isFirstPending) {
+                // In case a type change arrives outside of a store flush
+                queueMicrotask(flushVarRuleRebuilds);
+            }
         }
 
         buildStyleSheet();
