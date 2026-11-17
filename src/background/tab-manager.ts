@@ -1,5 +1,5 @@
 import {canInjectScript} from '../background/utils/extension-api';
-import type {MessageBGtoCS, MessageCStoBG, MessageUItoBG} from '../definitions';
+import type {MessageBGtoCS, MessageCStoBG, MessageUItoBG, DetectorVerdict} from '../definitions';
 import {MessageTypeCStoBG, MessageTypeBGtoCS, MessageTypeUItoBG} from '../utils/message';
 import {isFirefox} from '../utils/platform';
 import {StateManager} from '../utils/state-manager';
@@ -21,6 +21,7 @@ interface TabManagerOptions {
     getConnectionMessage: (tabURl: string, url: string, isTopFrame: boolean, topFrameHasDarkTheme?: boolean) => Promise<MessageBGtoCS>;
     getTabMessage: (tabURL: string, url: string, isTopFrame: boolean) => MessageBGtoCS;
     onColorSchemeChange: (isDark: boolean) => void;
+    onDetectorVerdict: (url: string, verdict: DetectorVerdict) => void;
     waitUntilReady: () => Promise<void>;
 }
 
@@ -68,16 +69,18 @@ export default class TabManager {
     private static fileLoader: FileLoader | null = null;
     private static onColorSchemeChange: TabManagerOptions['onColorSchemeChange'];
     private static getTabMessage: TabManagerOptions['getTabMessage'];
+    private static onDetectorVerdict: TabManagerOptions['onDetectorVerdict'];
     private static waitUntilReady: TabManagerOptions['waitUntilReady'];
     private static ready = false;
     private static timestamp: TabManagerState['timestamp'];
     private static readonly LOCAL_STORAGE_KEY = 'TabManager-state';
 
-    static init({getConnectionMessage, onColorSchemeChange, getTabMessage, waitUntilReady}: TabManagerOptions): void {
+    static init({getConnectionMessage, onColorSchemeChange, getTabMessage, onDetectorVerdict, waitUntilReady}: TabManagerOptions): void {
         TabManager.stateManager = new StateManager<TabManagerState>(TabManager.LOCAL_STORAGE_KEY, this, {tabs: {}, timestamp: 0}, logWarn);
         TabManager.tabs = {};
         TabManager.onColorSchemeChange = onColorSchemeChange;
         TabManager.getTabMessage = getTabMessage;
+        TabManager.onDetectorVerdict = onDetectorVerdict;
         TabManager.waitUntilReady = waitUntilReady;
 
         const onMessage = (message: MessageCStoBG | MessageUItoBG, sender: chrome.runtime.MessageSender, sendResponse: (response: any) => any) => {
@@ -209,7 +212,12 @@ export default class TabManager {
                     break;
                 }
 
+                case MessageTypeCStoBG.DARK_THEME_NOT_DETECTED:
+                    TabManager.rememberVerdict(message, sender, false);
+                    break;
+
                 case MessageTypeCStoBG.DARK_THEME_DETECTED: {
+                    TabManager.rememberVerdict(message, sender, true);
                     const tabId = sender.tab!.id!;
                     const frames = TabManager.tabs[tabId];
                     if (!frames) {
@@ -518,6 +526,13 @@ export default class TabManager {
 
     static getTabDocumentId(tab: chrome.tabs.Tab | null): string | null {
         return tab && TabManager.tabs[tab.id!] && TabManager.tabs[tab.id!][0] && TabManager.tabs[tab.id!][0].documentId;
+    }
+
+    private static rememberVerdict(message: MessageCStoBG, sender: chrome.runtime.MessageSender, isDark: boolean) {
+        // Only top frames are judged, except on a few sites with detector hints for frames
+        if (sender.frameId === 0 && sender.url && typeof message.data?.isDark === 'boolean') {
+            TabManager.onDetectorVerdict(sender.url, {isDark, isSystemDark: message.data.isDark});
+        }
     }
 
     static isTabDarkThemeDetected(tab: chrome.tabs.Tab | null): boolean | null {

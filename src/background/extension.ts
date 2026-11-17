@@ -1,4 +1,4 @@
-import type {ExtensionData, Theme, Shortcuts, UserSettings, TabInfo, TabData, Command, DevToolsData} from '../definitions';
+import type {ExtensionData, Theme, Shortcuts, UserSettings, TabInfo, TabData, Command, DevToolsData, DetectorVerdict} from '../definitions';
 import createCSSFilterStylesheet from '../generators/css-filter';
 import {getDetectorHintsFor} from '../generators/detector-hints';
 import {getDynamicThemeFixesFor} from '../generators/dynamic-theme';
@@ -17,6 +17,7 @@ import {isInTimeIntervalLocal, nextTimeInterval, isNightAtLocation, nextTimeChan
 import {isURLInList, getURLHostOrProtocol, isURLEnabled, isPDF} from '../utils/url';
 
 import ConfigManager from './config-manager';
+import DetectorMemory from './detector-memory';
 import DevTools from './devtools';
 import FallbackScriptManager, {getFallbackScriptTargets} from './fallback-script-manager';
 import IconManager from './icon-manager';
@@ -87,6 +88,7 @@ export class Extension {
             getConnectionMessage: Extension.getConnectionMessage,
             getTabMessage: Extension.getTabMessage,
             onColorSchemeChange: Extension.onColorSchemeChange,
+            onDetectorVerdict: Extension.onDetectorVerdict,
             waitUntilReady: Extension.waitUntilReady,
         });
 
@@ -251,6 +253,7 @@ export class Extension {
             ConfigManager.load({local: true}),
             Extension.MV3syncSystemColorStateManager(null),
             UserStorage.loadSettings(),
+            DetectorMemory.load(),
         ]);
 
         if (UserStorage.settings.enableContextMenus && !Extension.registeredContextMenus) {
@@ -660,9 +663,15 @@ export class Extension {
 
     private static updateFallbackScript() {
         if (__FIREFOX_MV2__) {
-            FallbackScriptManager.update(getFallbackScriptTargets(Extension.isExtensionSwitchedOn(), UserStorage.settings));
+            FallbackScriptManager.update(getFallbackScriptTargets(Extension.isExtensionSwitchedOn(), UserStorage.settings, DetectorMemory.getDarkHosts()));
         }
     }
+
+    private static onDetectorVerdict = (url: string, verdict: DetectorVerdict) => {
+        if (DetectorMemory.set(url, verdict)) {
+            Extension.updateFallbackScript();
+        }
+    };
 
     private static async onSettingsChanged(onlyUpdateActiveTab = false) {
         await Extension.loadData();
@@ -796,6 +805,7 @@ export class Extension {
                             isIFrame: !isTopFrame,
                             detectDarkTheme,
                             detectorHints,
+                            detectorVerdict: detectDarkTheme && isTopFrame ? DetectorMemory.get(url) : null,
                         },
                     };
                 }

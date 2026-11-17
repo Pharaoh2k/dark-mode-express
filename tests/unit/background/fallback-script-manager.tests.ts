@@ -1,7 +1,7 @@
 import {getFallbackScriptTargets} from '../../../src/background/fallback-script-manager';
 
 describe('Fallback script targets', () => {
-    const settings = {enabledByDefault: true, enabledFor: [] as string[], disabledFor: [] as string[]};
+    const settings = {enabledByDefault: true, enabledFor: [] as string[], disabledFor: [] as string[], detectDarkTheme: true};
 
     test('No fallback when the extension is off', () => {
         expect(getFallbackScriptTargets(false, settings)).toEqual(null);
@@ -25,6 +25,30 @@ describe('Fallback script targets', () => {
         });
         expect(getFallbackScriptTargets(true, {...settings, disabledFor: ['github.com'], enabledFor: ['/git/']})).toEqual({
             matches: ['<all_urls>'],
+            excludeMatches: [],
+        });
+    });
+
+    test('Skips sites the detector found dark', () => {
+        expect(getFallbackScriptTargets(true, settings, ['github.com', 'www.example.com', 'localhost'])).toEqual({
+            matches: ['<all_urls>'],
+            excludeMatches: ['*://github.com/*', '*://www.example.com/*'],
+        });
+        expect(getFallbackScriptTargets(true, {...settings, disabledFor: ['github.com']}, ['github.com'])).toEqual({
+            matches: ['<all_urls>'],
+            excludeMatches: ['*://github.com/*', '*://www.github.com/*'],
+        });
+        // The detector doesn't run on these
+        expect(getFallbackScriptTargets(true, {...settings, enabledFor: ['github.com']}, ['github.com'])).toEqual({
+            matches: ['<all_urls>'],
+            excludeMatches: [],
+        });
+        expect(getFallbackScriptTargets(true, {...settings, detectDarkTheme: false}, ['github.com'])).toEqual({
+            matches: ['<all_urls>'],
+            excludeMatches: [],
+        });
+        expect(getFallbackScriptTargets(true, {...settings, enabledByDefault: false, enabledFor: ['example.com']}, ['github.com'])).toEqual({
+            matches: ['*://example.com/*', '*://www.example.com/*'],
             excludeMatches: [],
         });
     });

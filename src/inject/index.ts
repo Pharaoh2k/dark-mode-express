@@ -1,4 +1,4 @@
-import type {DebugMessageBGtoCS, MessageBGtoCS, MessageCStoBG, MessageCStoUI, MessageUItoCS} from '../definitions';
+import type {DebugMessageBGtoCS, DetectorVerdict, MessageBGtoCS, MessageCStoBG, MessageCStoUI, MessageUItoCS} from '../definitions';
 import {isSystemDarkModeEnabled, runColorSchemeChangeDetector, stopColorSchemeChangeDetector, emulateColorScheme} from '../utils/media-query';
 import {DebugMessageTypeBGtoCS, MessageTypeBGtoCS, MessageTypeCStoBG, MessageTypeCStoUI, MessageTypeUItoCS} from '../utils/message';
 import {generateUID} from '../utils/uid';
@@ -144,23 +144,46 @@ function onMessage(message: MessageBGtoCS | MessageUItoCS | DebugMessageBGtoCS) 
             break;
         }
         case MessageTypeBGtoCS.ADD_DYNAMIC_THEME: {
-            const {theme, fixes, isIFrame, detectDarkTheme, detectorHints} = message.data;
+            const {theme, fixes, isIFrame, detectDarkTheme, detectorHints, detectorVerdict} = message.data;
             removeStyle();
-            createOrUpdateDynamicTheme(theme, fixes, isIFrame);
-            writeEnabledForHost(true);
-            if (detectDarkTheme) {
-                runDarkThemeDetector((hasDarkTheme) => {
-                    if (hasDarkTheme) {
+            const createTheme = () => {
+                createOrUpdateDynamicTheme(theme, fixes, isIFrame);
+                writeEnabledForHost(true);
+                if (__TEST__) {
+                    darkReaderDynamicThemeStateForTesting = 'ready';
+                    sendMessageForTesting('darkreader-dynamic-theme-ready');
+                    sendMessageForTesting(`darkreader-dynamic-theme-ready-${document.location.pathname}`);
+                }
+            };
+            if (!detectDarkTheme) {
+                createTheme();
+                break;
+            }
+            // Building the theme is expensive and makes a dark site flash in the theme's
+            // colors, so it waits for the detector unless the site was light last time.
+            const wasLight = getRememberedVerdict(detectorVerdict) === false;
+            let isThemeCreated = false;
+            if (wasLight) {
+                createTheme();
+                isThemeCreated = true;
+            }
+            runDarkThemeDetector((hasDarkTheme) => {
+                if (hasDarkTheme) {
+                    if (isThemeCreated) {
                         removeDynamicTheme();
-                        onDarkThemeDetected();
+                        isThemeCreated = false;
+                    } else {
+                        removeFallbackStyle();
                     }
-                }, detectorHints);
-            }
-            if (__TEST__) {
-                darkReaderDynamicThemeStateForTesting = 'ready';
-                sendMessageForTesting('darkreader-dynamic-theme-ready');
-                sendMessageForTesting(`darkreader-dynamic-theme-ready-${document.location.pathname}`);
-            }
+                    onDarkThemeDetected();
+                    return;
+                }
+                if (!isThemeCreated) {
+                    createTheme();
+                    isThemeCreated = true;
+                }
+                onDarkThemeNotDetected();
+            }, detectorHints);
             break;
         }
         case MessageTypeUItoCS.EXPORT_CSS:
@@ -248,7 +271,24 @@ function onResume() {
 
 function onDarkThemeDetected() {
     writeEnabledForHost(false);
-    sendMessage({type: MessageTypeCStoBG.DARK_THEME_DETECTED});
+    sendMessage({type: MessageTypeCStoBG.DARK_THEME_DETECTED, data: {isDark: isSystemDarkModeEnabled()}});
+}
+
+function onDarkThemeNotDetected() {
+    sendMessage({type: MessageTypeCStoBG.DARK_THEME_NOT_DETECTED, data: {isDark: isSystemDarkModeEnabled()}});
+}
+
+// What the detector found on this site last time, if the system color scheme is still the same,
+// since many sites follow it
+function getRememberedVerdict(verdict: DetectorVerdict | null | undefined): boolean | null {
+    if (!verdict || verdict.isSystemDark !== isSystemDarkModeEnabled()) {
+        return null;
+    }
+    return verdict.isDark;
+}
+
+function removeFallbackStyle() {
+    document.querySelectorAll('.darkreader--fallback').forEach((style) => style.remove());
 }
 
 // Thunderbird does not have "tabs", and emails aren't 'frozen' or 'cached'.

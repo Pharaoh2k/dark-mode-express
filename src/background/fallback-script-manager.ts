@@ -35,10 +35,12 @@ const FALLBACK_SCRIPT_FILE = '/inject/fallback.js';
  * arrives after the first paint. Returns null when no page should get it.
  * @param isEnabled Whether the extension is switched on.
  * @param settings User settings.
+ * @param darkHosts Sites the dark theme detector found dark last time.
  */
 export function getFallbackScriptTargets(
     isEnabled: boolean,
-    settings: Pick<UserSettings, 'enabledByDefault' | 'enabledFor' | 'disabledFor'>,
+    settings: Pick<UserSettings, 'enabledByDefault' | 'enabledFor' | 'disabledFor' | 'detectDarkTheme'>,
+    darkHosts: string[] = [],
 ): FallbackScriptTargets | null {
     if (!isEnabled) {
         return null;
@@ -70,6 +72,15 @@ export function getFallbackScriptTargets(
             continue;
         }
         patterns.forEach((pattern) => excludeMatches.add(pattern));
+    }
+    if (settings.detectDarkTheme) {
+        for (const host of darkHosts) {
+            // The detector doesn't run on sites on the "enabled for" list
+            if (settings.enabledFor.some((enabledEntry) => mayMatchHost(enabledEntry, host))) {
+                continue;
+            }
+            getExactMatchPatterns(`^${host}`)?.forEach((pattern) => excludeMatches.add(pattern));
+        }
     }
     return {matches: ALL_URLS.matches, excludeMatches: Array.from(excludeMatches)};
 }

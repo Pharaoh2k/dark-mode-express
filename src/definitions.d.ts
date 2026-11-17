@@ -209,10 +209,20 @@ export interface InversionFix {
     css: string;
 }
 
+// What the dark theme detector found on a site last time
+export interface DetectorVerdict {
+    isDark: boolean;
+    // The system color scheme at the time
+    isSystemDark: boolean;
+}
+
 export interface DetectorHint {
     url: string[];
     target: string;
     match: string[];
+    // Selectors that only mean a dark theme when the system color scheme is dark, or light
+    matchSystemDark?: string[];
+    matchSystemLight?: string[];
     noDarkTheme: boolean;
     systemTheme: boolean;
     iframe: boolean;
